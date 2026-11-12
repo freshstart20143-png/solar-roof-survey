@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 版本號跟著 GitHub 自動打包的次數走
+def runNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+
+// 簽章：GitHub 上有設定金鑰就用正式金鑰（之後更新才裝得上去），沒設定就用測試金鑰
+def keystorePath = System.getenv('SIGNING_KEYSTORE_PATH')
+def hasReleaseKey = keystorePath != null && new File(keystorePath).exists()
+
+android {
+    namespace 'tw.solarroof.survey'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'tw.solarroof.survey'
+        minSdk 26
+        targetSdk 34
+        versionCode runNumber
+        versionName "1.0.${runNumber}"
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv('SIGNING_STORE_PASSWORD')
+                keyAlias System.getenv('SIGNING_KEY_ALIAS')
+                keyPassword System.getenv('SIGNING_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // 地圖程式已經壓縮過，不要再壓縮 assets
+    androidResources {
+        noCompress 'js', 'css', 'html'
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#0D9488</color>
+    <color name="accent_dark">#0B7A70</color>
+    <color name="icon_bg">#0D9488</color>
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/accent</item>
+        <item name="android:colorPrimaryDark">@color/accent_dark</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:statusBarColor">@color/accent_dark</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>
