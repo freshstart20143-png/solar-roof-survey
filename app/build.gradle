@@ -14,7 +14,7 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId 'tw.solarroof.survey'
+        applicationId 'tw.guangdian.wudingtankan'
         minSdk 26
         targetSdk 34
         versionCode runNumber
