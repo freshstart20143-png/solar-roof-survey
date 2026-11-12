@@ -16,13 +16,15 @@ const saved = store.get('ss_settings', {});
 const D = E.DEFAULTS;
 const settings = {
   base: saved.base === 'emap' ? 'emap' : 'photo',
-  defRegion: REGIONS.indexOf(saved.defRegion) >= 0 ? saved.defRegion : '新竹',
   coverage: saved.coverage > 0 ? saved.coverage : D.coverage,
   minRoofPing: saved.minRoofPing != null ? saved.minRoofPing : D.minRoofPing,
   minKw: saved.minKw != null ? saved.minKw : D.minKw,
   panelW: saved.panelW > 0 ? saved.panelW : D.panelW,
-  sun: Object.assign({}, D.sun, saved.sun || {}),
-  rates: Array.isArray(saved.rates) && saved.rates.length === 6 ? saved.rates : D.rates.slice(),
+  sun: (() => {
+    const out = Object.assign({}, E.SUN);
+    for (const k of E.SUN_AREAS) { const v = saved.sun && +saved.sun[k]; if (v > 0) out[k] = v; }
+    return out;
+  })(),
   nearMargin: D.nearMargin
 };
 // 只保留手動劃的屋頂
@@ -170,8 +172,8 @@ function showDetail(id) {
     <div class="form">
       <label for="fAddr">地址（自己填，查地籍時會用到）</label>
       <input id="fAddr" type="text" value="${esc(b.addr || '')}" placeholder="例：新竹縣湖口鄉榮光一路277號">
-      <label>所在地區（決定日照時數）</label>
-      <div class="basepick">${REGIONS.map(g => `<button data-g="${g}" class="${r.sun.region === g ? 'on' : ''}">${g}</button>`).join('')}</div>
+      <label for="fRegion">所在縣市（決定日照和躉購費率）${b.regionAuto ? '<span class="auto">依位置自動判斷，請確認</span>' : ''}</label>
+      <select id="fRegion">${REGIONS.map(g => `<option value="${g}"${r.sun.region === g ? ' selected' : ''}>${g}</option>`).join('')}</select>
     </div>
     <div class="hero">
       <div class="stat"><div class="k">可裝容量（估計）</div><div class="v">${fmt(m.kw, 2)}<small>kW</small></div><div class="k">${m.panels} 片 × ${settings.panelW}W</div></div>
@@ -186,7 +188,7 @@ function showDetail(id) {
       <div class="stat"><label class="k" for="fFloors">登記樓層（查地籍後填）</label><input id="fFloors" type="number" inputmode="numeric" min="1" max="99" value="${b.floors || ''}" placeholder="例 3"></div>
     </div>
     <div class="meta">
-      ${esc(r.sun.region)} 日照 ${r.sun.hours} 小時/天　每年衰退 0.6%<br>
+      ${esc(r.sun.region)}：日照 ${r.sun.hours} 小時/天${r.sun.area !== r.sun.region ? `（用${esc(r.sun.area)}的數字）` : ''}，躉購費率用「${esc(f.groupLabel)}」　每年衰退 0.6%<br>
       片數 = 屋頂面積 × 鋪設比例 ${Math.round(settings.coverage * 100)}% ÷ 每片面積。<b>沒有判斷遮蔭</b>，請自己看空拍確認有沒有被旁邊的樓擋住。僅供篩選參考，報價前請現場確認。
     </div>
     <div class="actions">
@@ -198,10 +200,11 @@ function showDetail(id) {
     </div>`, 'detail:' + id);
 
   $('fAddr').onchange = () => { b.addr = $('fAddr').value.trim(); saveAll(); toast('已存地址'); };
-  $('sheetBody').querySelectorAll('.basepick button').forEach(btn => btn.onclick = () => {
+  $('fRegion').onchange = () => {
     b.addr = $('fAddr').value.trim();
-    b.region = btn.dataset.g; settings.defRegion = b.region; saveSettings(); saveAll(); render(); showDetail(id);
-  });
+    b.region = $('fRegion').value; delete b.regionAuto;
+    saveAll(); render(); showDetail(id);
+  };
   $('fFloors').onchange = () => {
     const v = parseInt($('fFloors').value, 10);
     if (v > 0) b.floors = v; else delete b.floors;
@@ -268,7 +271,7 @@ $('drawDone').onclick = () => {
   if (E.polyAreaM2(pts) / E.PING > 1000) { toast('劃出來超過 1,000 坪，不像一棟透天。請按「復原一點」重新點屋頂的角', 6000); return; }
   const c = E.centroid(pts);
   const id = 'm' + Date.now();
-  buildings[id] = { id, manual: true, poly: pts, lng: c[0], lat: c[1], groundM2: E.polyAreaM2(pts), region: settings.defRegion, t: Date.now() };
+  buildings[id] = { id, manual: true, poly: pts, lng: c[0], lat: c[1], groundM2: E.polyAreaM2(pts), region: E.nearestCounty(c[0], c[1]) || '新竹', regionAuto: true, t: Date.now() };
   endDraw(); saveAll(); render(); showDetail(id);
 };
 $('btnDrawNew').onclick = () => startDraw();
@@ -298,7 +301,7 @@ function viewContains(b) {
 function listRow(x) {
   const b = x.b, m = x.r.metrics, f = x.r.fin;
   return `<i style="background:var(${COLORS[x.r.status]})"></i>
-    <div class="lt"><div class="a">${esc(b.addr || '（還沒填地址）')}</div>
+    <div class="lt"><div class="a">${esc(b.addr || '（還沒填地址）')}　<small>${esc(x.r.sun.region)}</small></div>
     <div class="n">${fmt(m.kw, 2)} kW　每年售電 ${fmt(f.avgIncome / 10000, 1)} 萬${b.floors ? `　登記 ${b.floors} 樓` : ''}</div>
     <span>${LABELS[x.r.status]}　${m.panels} 片　屋頂 ${fmt(m.roofPing, 1)} 坪</span></div>
     <span>›</span>`;
@@ -337,7 +340,7 @@ $('btnLocate').onclick = () => {
 // ---------- 設定 ----------
 function openSettings() {
   const s = settings;
-  const rateInputs = E.RATE_TIERS.map((t, i) => `<div><label for="fRate${i}">${t.label}</label><input id="fRate${i}" type="number" inputmode="decimal" step="0.0001" value="${s.rates[i]}"></div>`).join('');
+  const sunTmp = Object.assign({}, s.sun);
   openSheet('設定', `
     <div class="form">
       <h3 style="border-top:0;padding-top:0;margin-top:4px">篩選條件</h3>
@@ -351,14 +354,11 @@ function openSettings() {
         <div><label for="fCov">鋪設比例（%）</label><input id="fCov" type="number" inputmode="numeric" value="${Math.round(s.coverage * 100)}"></div>
       </div>
       <div class="note">鋪設比例：屋頂扣掉樓梯間、女兒牆、走道後能放板子的比例，預設 65%。</div>
-      <div class="row3">
-        <div><label for="fSunTao">桃園日照</label><input id="fSunTao" type="number" inputmode="decimal" step="0.01" value="${s.sun['桃園']}"></div>
-        <div><label for="fSunHsq">新竹日照</label><input id="fSunHsq" type="number" inputmode="decimal" step="0.01" value="${s.sun['新竹']}"></div>
-        <div><label for="fSunMia">苗栗日照</label><input id="fSunMia" type="number" inputmode="decimal" step="0.01" value="${s.sun['苗栗']}"></div>
+      <div class="row">
+        <div><label for="fSunArea">日照地區</label><select id="fSunArea">${E.SUN_AREAS.map(a => `<option value="${a}">${a === '雙北' ? '雙北（台北、新北、基隆）' : a}</option>`).join('')}</select></div>
+        <div><label for="fSunVal">每天日照（小時）</label><input id="fSunVal" type="number" inputmode="decimal" step="0.01" value="${sunTmp['雙北']}"></div>
       </div>
-      <div class="note">每日日照小時數（2025 年氣象署統計）。每年衰退固定 0.6%。</div>
-      <h3>躉購費率（屋頂型，苗栗以北，元/度）</h3>
-      <div class="row3">${rateInputs}</div>
+      <div class="note">先選地區再改數字，可以一個一個改，最後按儲存。預設是 2025 年氣象署統計。每年衰退固定 0.6%。<br>躉購費率依縣市自動套用（115 年屋頂型：苗栗以北、台中以南、台東三組）。</div>
       <h3>底圖</h3>
       <div class="basepick"><button id="bPhoto" class="${s.base === 'photo' ? 'on' : ''}">空拍圖</button><button id="bEmap" class="${s.base === 'emap' ? 'on' : ''}">街道圖</button></div>
       <div class="actions"><button class="btn primary full" id="saveS">儲存</button>
@@ -370,6 +370,8 @@ function openSettings() {
     map.setLayoutProperty('emap', 'visibility', k === 'emap' ? 'visible' : 'none');
     $('bPhoto').classList.toggle('on', k === 'photo'); $('bEmap').classList.toggle('on', k === 'emap');
   };
+  $('fSunArea').onchange = () => { $('fSunVal').value = sunTmp[$('fSunArea').value]; };
+  $('fSunVal').oninput = () => { const v = parseFloat($('fSunVal').value); if (isFinite(v) && v > 0) sunTmp[$('fSunArea').value] = v; };
   $('bPhoto').onclick = () => pickBase('photo');
   $('bEmap').onclick = () => pickBase('emap');
   $('saveS').onclick = () => {
@@ -377,8 +379,7 @@ function openSettings() {
     s.minRoofPing = num('fRoof', D.minRoofPing); s.minKw = num('fKw', D.minKw);
     s.panelW = Math.max(1, num('fPanelW', D.panelW));
     s.coverage = Math.min(100, Math.max(1, num('fCov', D.coverage * 100))) / 100;
-    s.sun = { 桃園: num('fSunTao', D.sun['桃園']), 新竹: num('fSunHsq', D.sun['新竹']), 苗栗: num('fSunMia', D.sun['苗栗']) };
-    s.rates = E.RATE_TIERS.map((t, i) => num('fRate' + i, D.rates[i]));
+    s.sun = sunTmp;
     saveSettings(); render(); closeSheet(); toast('已儲存');
   };
   let armed = false;
